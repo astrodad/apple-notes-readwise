@@ -71,8 +71,8 @@ export async function noteWithKeyExists(
   const script = `
     tell application "Notes"
       try
-        set targetFolder to folder "${sanitizeHTML(folder)}" of account "${sanitizeHTML(account)}"
-        return (count of (notes of targetFolder whose body contains "readwise-id: ${sanitizeHTML(key)}")) > 0
+        set targetFolder to folder "${escapeAppleScriptString(folder)}" of account "${escapeAppleScriptString(account)}"
+        return (count of (notes of targetFolder whose body contains "readwise-id: ${escapeAppleScriptString(key)}")) > 0
       on error
         return false
       end try
@@ -93,7 +93,7 @@ export async function getNoteKeysInFolder(
   const script = `
     tell application "Notes"
       try
-        set targetFolder to folder "${sanitizeHTML(folder)}" of account "${sanitizeHTML(account)}"
+        set targetFolder to folder "${escapeAppleScriptString(folder)}" of account "${escapeAppleScriptString(account)}"
         set noteTexts to plaintext of every note of targetFolder
         set AppleScript's text item delimiters to linefeed
         return noteTexts as text
@@ -134,7 +134,7 @@ export async function updateAppleNotesAccounts() {
   }
 }
 
-function sanitizeHTML(text: string | number | null | undefined) {
+function escapeAppleScriptString(text: string | number | null | undefined) {
   if (!text && text !== 0) return '' // Handle undefined, null, or empty cases
   return text
     .toString()
@@ -163,30 +163,6 @@ async function fetchDefaultAccount() {
   `
   const result = await executeAppleScript(script)
   return result.trim()
-}
-
-export async function checkIfNoteExist(
-  note_id: string,
-  folder: string,
-  account: string
-): Promise<boolean> {
-  const script = `
-      tell application "Notes"
-      set noteExist to false
-        try
-            set theAccount to account "${account}" -- specify your account name here
-            set theFolder to folder "${folder}" of theAccount -- specify your folder name here
-            set theNote to the first note in theFolder whose id is "${note_id}"
-            set noteExist to true
-        on error
-            set noteExist to false
-        end try
-      end tell
-      return noteExist
-    `
-
-  const result = await executeAppleScript(script)
-  return result === 'true'
 }
 
 export async function getAppleNotesAccounts(): Promise<string[]> {
@@ -277,127 +253,4 @@ export const createFolderInAppleNotes = async (
 
   const result = await executeAppleScript(script)
   return result === 'true'
-}
-
-export const checkIfFolderIsEmtpy = async (folder: string, account: string): Promise<boolean> => {
-  const script = `
-      tell application "Notes"
-        set folderName to "${folder}"
-        set accountName to "${account}"
-        try
-            set targetFolder to folder folderName of account accountName
-            if (count of notes of targetFolder) is 0 then
-                return true -- Folder is empty
-            else
-                return false -- Folder is not empty
-            end if
-        on error
-            return false -- Folder does not exist
-        end try
-      end tell
-    `
-
-  const result = await executeAppleScript(script)
-  return result === 'true'
-}
-
-export const updateExistingNote = async (
-  content: string,
-  note_id: string,
-  folder: string,
-  account: string
-): Promise<string> => {
-  const cleanContent = sanitizeHTML(content) // Sanitize the content for AppleScript
-  const script = `
-      tell application "Notes"
-        try
-            -- Specify the account and folder
-            set targetAccount to first account whose name is "${account}"
-            set targetFolder to first folder of targetAccount whose name is "${folder}"
-            
-            -- Find the note with the specified ID
-            set noteMatch to first note of targetFolder whose id is "${note_id}"
-            set noteTitle to name of noteMatch
-            set currentContent to the body of noteMatch -- retrieve existing content
-            
-            -- Update the note with the new content appended
-            set newContent to currentContent & "<div><br></div>" & "${cleanContent}" -- modify appended text here
-            set body of noteMatch to newContent
-            
-            -- Return the ID of the updated note
-            return id of noteMatch
-        on error
-            -- Return an empty string if the note is not found
-            return ""
-        end try
-    end tell
-    `
-  const result = await executeAppleScript(script)
-  return result
-}
-
-export const appendToExistingNote = async (
-  content: string,
-  note_id: string,
-  folder: string,
-  account: string
-): Promise<string> => {
-  const cleanContent = sanitizeHTML(content) // Sanitize the content for AppleScript
-  const script = `
-      tell application "Notes"
-        try
-          -- Specify the account and folder
-          set targetAccount to first account whose name is "${account}"
-          set targetFolder to first folder of targetAccount whose name is "${folder}"
-          
-          -- Find the note with the specified ID
-          set noteMatch to first note of targetFolder whose id is "${note_id}"
-          set noteTitle to name of noteMatch
-          
-          -- Append the new content to the existing note
-          set body of noteMatch to "<h1>" & noteTitle & "</h1><br>" & "${cleanContent}"
-
-          -- Return the ID of the updated note
-          return id of noteMatch
-        on error
-          -- Return an empty string if the note is not found
-          return ""
-        end try
-      end tell
-    `
-  const result = await executeAppleScript(script)
-  return result
-}
-
-export const createNewNote = async (
-  content: string,
-  title: string,
-  folder: string,
-  account: string
-) => {
-  const cleanContent = sanitizeHTML(content) // Sanitize the content for AppleScript  
-  const appleScript = `
-    tell application "Notes"
-
-        -- Specify the desired account and folder
-        set desiredAccountName to "${account}"
-        set folderName to "${folder}"
-        set noteTitle to "${title}"
-        set noteBody to "${cleanContent}"
-
-        set noteCreated to ""
-
-        -- Create a new note in the specified folder of the desired account
-        try            
-            set newNote to make new note at folder folderName of account desiredAccountName with properties {name:"", body:noteBody}
-            log "Note '" & noteTitle & "' updated in folder '" & folderName & "' of " & account & " desiredAccountName."
-            set noteCreated to id of newNote
-        on error
-            log "Note '" & noteTitle & "' not found in folder '" & folderName & "' of " & account & " desiredAccountName."
-        end try
-        return noteCreated
-    end tell
-    `
-  const result = await executeAppleScript(appleScript)
-  return result
 }

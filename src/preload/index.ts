@@ -13,9 +13,6 @@ contextBridge.exposeInMainWorld('api', {
   getUserAccounts: () => {
     return ipcRenderer.invoke('fetch-apple-notes-accounts')
   },
-  requestAppleNotesPermission: () => {
-    return ipcRenderer.invoke('request-apple-notes-permission')
-  },
   readwise: {
     connectToReadwise() {
       return ipcRenderer.invoke('connect-to-readwise')
