@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { store } from '@/lib/store'
+import { IMPORT_SHORTCUT_NAME } from '../../shared/constants'
 
 // https://github.com/sindresorhus/run-applescript/blob/9db60e8a8fa7db46534c3c8a05c0f58135280ebb/index.js#L5
 async function runAppleScript(
@@ -9,7 +10,7 @@ async function runAppleScript(
   const outputArguments = humanReadableOutput ? [] : ['-ss']
 
   return new Promise((resolve, reject) => {
-    execFile('osascript', ['-e', script, ...outputArguments], (error, stdout, stderr) => {
+    execFile('osascript', ['-e', script, ...outputArguments], { maxBuffer: 256 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`Error: ${stderr || error.message}`))
       } else {
@@ -17,6 +18,97 @@ async function runAppleScript(
       }
     })
   })
+}
+
+/**
+ * Unique, delimited key stored in each note. The "-end" suffix prevents a key
+ * from being a substring of another (e.g. book 12 vs book 123) since the
+ * shortcut finds notes with "body contains key".
+ */
+export function noteKeyForBook(bookId: string): string {
+  return `rwid-${bookId}-end`
+}
+
+export async function importShortcutExists(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile('shortcuts', ['list'], (error, stdout) => {
+      if (error) return resolve(false)
+      const names = stdout.split('\n').map((s) => s.trim())
+      resolve(names.includes(IMPORT_SHORTCUT_NAME))
+    })
+  })
+}
+
+/**
+ * Runs the import shortcut with the payload as JSON on stdin.
+ * NOTE: `shortcuts run` exits 0 even when a step fails, so callers must verify
+ * the result (see noteWithKeyExists).
+ */
+export function runImportShortcut(payload: {
+  key: string
+  folder: string
+  markdown: string
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'shortcuts',
+      ['run', IMPORT_SHORTCUT_NAME],
+      { timeout: 120_000 },
+      (error, _stdout, stderr) => {
+        if (error) reject(new Error(`shortcuts run failed: ${stderr || error.message}`))
+        else resolve()
+      }
+    )
+    child.stdin?.end(JSON.stringify(payload))
+  })
+}
+
+export async function noteWithKeyExists(
+  key: string,
+  folder: string,
+  account: string
+): Promise<boolean> {
+  const script = `
+    tell application "Notes"
+      try
+        set targetFolder to folder "${sanitizeHTML(folder)}" of account "${sanitizeHTML(account)}"
+        return (count of (notes of targetFolder whose body contains "readwise-id: ${sanitizeHTML(key)}")) > 0
+      on error
+        return false
+      end try
+    end tell
+  `
+  const result = await executeAppleScript(script)
+  return result === 'true'
+}
+
+/**
+ * Returns the set of readwise-id keys found in the notes of a folder, or null if the
+ * folder could not be read. Reads all note text in a single AppleScript call.
+ */
+export async function getNoteKeysInFolder(
+  folder: string,
+  account: string
+): Promise<Set<string> | null> {
+  const script = `
+    tell application "Notes"
+      try
+        set targetFolder to folder "${sanitizeHTML(folder)}" of account "${sanitizeHTML(account)}"
+        set noteTexts to plaintext of every note of targetFolder
+        set AppleScript's text item delimiters to linefeed
+        return noteTexts as text
+      on error
+        return "__ERROR__"
+      end try
+    end tell
+  `
+  const result = await executeAppleScript(script)
+  if (result === '__ERROR__') return null
+  const keys = new Set<string>()
+  for (const match of result.matchAll(/readwise-id: (rwid-\S+?-end)/g)) {
+    keys.add(match[1])
+  }
+  return keys
 }
 
 export async function updateAppleNotesAccounts() {

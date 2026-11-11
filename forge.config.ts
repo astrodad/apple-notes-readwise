@@ -14,19 +14,29 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: 'resources/icon',
-    osxSign: {
-      optionsForFile(_filePath: string) {
-        return {
-          entitlements: './entitlements/entitlements.plist',
-        };
-      },
-      identity: process.env.APPLE_SIGNING_IDENTITY || '',
-    },
-    osxNotarize: {
-      appleId: process.env.APPLE_ID || '',
-      appleIdPassword: process.env.APPLE_ID_PASSWORD || '',
-      teamId: process.env.APPLE_TEAM_ID || ''
-    },
+    // Only sign/notarize when credentials are provided (release builds).
+    // Local builds skip both so `npm run package` works without an Apple developer account.
+    ...(process.env.APPLE_SIGNING_IDENTITY
+      ? {
+          osxSign: {
+            optionsForFile(_filePath: string) {
+              return {
+                entitlements: './entitlements/entitlements.plist',
+              };
+            },
+            identity: process.env.APPLE_SIGNING_IDENTITY,
+          },
+        }
+      : {}),
+    ...(process.env.APPLE_ID && process.env.APPLE_ID_PASSWORD && process.env.APPLE_TEAM_ID
+      ? {
+          osxNotarize: {
+            appleId: process.env.APPLE_ID,
+            appleIdPassword: process.env.APPLE_ID_PASSWORD,
+            teamId: process.env.APPLE_TEAM_ID
+          },
+        }
+      : {}),
     extendInfo: {
       "NSAppleEventsUsageDescription": "This app requires permission to access and interact with Apple Notes.",
       "NSSystemAdministrationUsageDescription": "This app requires full disk access to read and process your notes securely."
