@@ -41,6 +41,49 @@ This app enables you to easily export all your digital highlights to Apple Notes
 
 ---
 
+## Required Shortcut
+
+Notes are created through an Apple Shortcut so they get native Apple Notes styling (Title, Heading, Body) instead of imported-HTML formatting. The app looks for a shortcut named **`Import Markdown to Notes`** and won't sync without it.
+
+Create it in the Shortcuts app with these actions (your version of macOS must offer the **Interpret as Markdown** option on the Notes actions):
+
+1. **Receive** Text/Files from Share Sheet/Nowhere (If there's no input: Continue).
+2. **Get Dictionary from** Shortcut Input.
+3. **Get Dictionary Value** for `key`, then **Set Variable** `noteKey`.
+4. **Get Dictionary Value** for `folder`, then **Set Variable** `folderName`.
+5. **Get Dictionary Value** for `markdown`, then **Set Variable** `markDown`.
+6. **Find Notes** where **Body contains** `noteKey`, limit 1. Do not filter by folder (a text value can't be used as a Folder filter).
+7. **If** the found Note **has any value**:
+   - **Append** `markDown` to the Note, with **Interpret as Markdown** on.
+8. **Otherwise**:
+   - **Create Note** with `markDown` in the folder `folderName`, with **Interpret as Markdown** on and the **Name** left empty.
+9. **End If**.
+
+The app runs it with `shortcuts run "Import Markdown to Notes"` and passes JSON on stdin:
+
+```json
+{"key": "rwid-12345-end", "folder": "Readwise", "markdown": "# Title\n\nreadwise-id: rwid-12345-end\n\n..."}
+```
+
+The app writes the `readwise-id` line itself (under the note's title) and uses it to find the note again later, so the shortcut must not add its own copy. The key is delimited (`rwid-<id>-end`) so one book's key is never a substring of another's.
+
+To check it works, run this in Terminal; a new note should appear in the folder:
+
+```bash
+echo '{"key":"rwid-0-end","folder":"Readwise","markdown":"# Test\n\nreadwise-id: rwid-0-end\n\nHello"}' | shortcuts run "Import Markdown to Notes"
+```
+
+> Note: `shortcuts run` exits with status 0 even when a step fails, so the app confirms new notes exist after creating them.
+
+### How syncing works
+
+- A book's note is found by its `readwise-id` line, not by the note's title or an AppleScript ID, so you can rename notes freely.
+- New highlights are appended to the end of an existing note.
+- If you delete a book's note, the next sync asks Readwise to re-export that book in full and recreates the note. Deleting every note in the folder triggers a full sync.
+- Notes created by older versions of the app have no `readwise-id` line, so the next sync creates a new note for those books.
+
+---
+
 ## Screenshots
 
 ![main-screen](/screenshots/app-and-apple-notes.png)
@@ -92,7 +135,7 @@ Select account
 
 - [Electron](https://www.electronjs.org/)
 - [TypeScript](https://www.typescriptlang.org/)
-- [AppleScript](https://en.wikipedia.org/wiki/AppleScript)
+- [AppleScript](https://en.wikipedia.org/wiki/AppleScript) and [Apple Shortcuts](https://support.apple.com/guide/shortcuts-mac/welcome/mac)
 
 ---
 
@@ -119,7 +162,11 @@ Contributions are welcome! Please follow these steps:
 
 ## Known Limitations
 
-- Only supports macOS due to reliance on AppleScript.
+- Only supports macOS due to reliance on AppleScript and Apple Shortcuts.
+- Requires the `Import Markdown to Notes` shortcut (see [Required Shortcut](#required-shortcut)).
+- Syncs one book at a time, because concurrent shortcut runs can race.
+- Appends can't be verified: if the shortcut fails during an append, the app can't tell.
+- The shortcut only receives a folder name, so the selected Apple Notes account isn't used when creating notes.
 - Requires the Apple Notes app to be installed and configured.
 
 ---
