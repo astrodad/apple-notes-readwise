@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { store } from '@/lib/store'
 import { IMPORT_SHORTCUT_NAME } from '../../shared/constants'
 
@@ -77,6 +80,52 @@ export function runImportShortcut(payload: {
     )
     child.stdin?.end(JSON.stringify(payload))
   })
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/heic': 'heic',
+  'image/tiff': 'tiff',
+  'image/webp': 'webp'
+}
+
+/**
+ * Downloads an image and attaches it to the end of the note containing `key`.
+ * Notes' markdown import (via Shortcuts) turns ![](url) into an empty link, so images
+ * are attached separately as real attachments.
+ */
+export async function attachImageToNote(
+  imageUrl: string,
+  key: string,
+  folder: string,
+  account: string
+): Promise<void> {
+  const response = await fetch(imageUrl)
+  if (!response.ok) throw new Error(`image download failed: ${response.status}`)
+  const contentType = (response.headers.get('content-type') || '').split(';')[0].trim()
+  const extension = IMAGE_EXTENSIONS[contentType]
+  if (!extension) throw new Error(`unsupported image type: ${contentType || 'unknown'}`)
+
+  const filePath = path.join(
+    os.tmpdir(),
+    `readwise-cover-${Date.now()}-${Math.random().toString(36).slice(2)}.${extension}`
+  )
+  await fs.writeFile(filePath, Buffer.from(await response.arrayBuffer()))
+  try {
+    const script = `
+      tell application "Notes"
+        set targetFolder to folder "${escapeAppleScriptString(folder)}" of account "${escapeAppleScriptString(account)}"
+        set targetNote to first note of targetFolder whose body contains "readwise-id: ${escapeAppleScriptString(key)}"
+        make new attachment at end of attachments of targetNote with data (POSIX file "${escapeAppleScriptString(filePath)}")
+      end tell
+    `
+    await executeAppleScript(script)
+  } finally {
+    await fs.rm(filePath, { force: true })
+  }
 }
 
 export async function noteWithKeyExists(

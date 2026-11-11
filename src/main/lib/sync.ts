@@ -9,6 +9,7 @@ import {
   ReadwiseSyncMessage
 } from '../../shared/types'
 import {
+  attachImageToNote,
   checkFolderExistsAndIsEmptyInAppleNotes,
   checkNotesAutomationAccess,
   checkFolderExistsInAppleNotes,
@@ -31,6 +32,16 @@ function insertKeyAfterTitle(markdown: string, key: string): string {
   const newline = markdown.indexOf('\n')
   if (newline === -1) return `${markdown}\n\n${keyLine}\n`
   return `${markdown.slice(0, newline)}\n\n${keyLine}\n${markdown.slice(newline)}`
+}
+
+/**
+ * Notes' markdown import turns ![](url) into an empty link instead of an image, so pull the
+ * first image (the book/article cover) out of the markdown to attach it separately.
+ */
+function extractCoverImage(markdown: string): { markdown: string; imageUrl: string | null } {
+  const match = markdown.match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/)
+  if (!match) return { markdown, imageUrl: null }
+  return { markdown: markdown.replace(match[0], ''), imageUrl: match[1] }
 }
 
 export function getAppleNoteClientID(): string {
@@ -125,18 +136,53 @@ export class ReadwiseSync {
       const key = noteKeyForBook(bookId)
 
       // The shortcut appends if a note containing the key exists, otherwise it creates one.
-      // When appending, drop the top-level heading so the title isn't repeated.
       const existedBefore = await noteWithKeyExists(key, notesFolder, account)
-      // On create, put the key right under the title line so later appends land after it.
-      // The shortcut no longer adds its own readwise-id line.
-      const markdown = existedBefore
-        ? content.replace(/^# .*?\n\s*/s, '')
-        : insertKeyAfterTitle(content, key)
+      const { markdown: body, imageUrl } = extractCoverImage(content)
 
       console.log(
         `MAIN: ${existedBefore ? 'appending to' : 'creating'} note: ${originalName} - (${bookId})`
       )
-      await runImportShortcut({ key, folder: notesFolder, markdown })
+
+      if (existedBefore) {
+        // Drop the top-level heading so the title isn't repeated.
+        await runImportShortcut({
+          key,
+          folder: notesFolder,
+          markdown: body.replace(/^# .*?\n\s*/s, '')
+        })
+      } else if (!imageUrl) {
+        // Put the key right under the title line so later appends land after it.
+        // The shortcut does not add its own readwise-id line.
+        await runImportShortcut({
+          key,
+          folder: notesFolder,
+          markdown: insertKeyAfterTitle(body, key)
+        })
+      } else {
+        // Create the note with only the title + key, attach the cover image right under it,
+        // then append the rest, so the image sits at the top of the note.
+        const newline = body.indexOf('\n')
+        const titleLine = newline === -1 ? body : body.slice(0, newline)
+        const rest = newline === -1 ? '' : body.slice(newline + 1)
+
+        await runImportShortcut({
+          key,
+          folder: notesFolder,
+          markdown: insertKeyAfterTitle(titleLine, key)
+        })
+
+        if (await noteWithKeyExists(key, notesFolder, account)) {
+          try {
+            await attachImageToNote(imageUrl, key, notesFolder, account)
+          } catch (e) {
+            // a missing cover shouldn't fail the whole book
+            console.log(`MAIN: could not attach image for (${bookId}): `, e)
+          }
+          if (rest.trim()) {
+            await runImportShortcut({ key, folder: notesFolder, markdown: rest })
+          }
+        }
+      }
 
       // `shortcuts run` exits 0 even if the shortcut failed, so confirm a new note really exists
       if (!existedBefore && !(await noteWithKeyExists(key, notesFolder, account))) {
