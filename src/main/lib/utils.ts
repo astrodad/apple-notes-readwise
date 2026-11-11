@@ -21,6 +21,22 @@ async function runAppleScript(
 }
 
 /**
+ * Verifies this app is allowed to control Notes. Without Automation permission every
+ * folder/note script fails, and the scripts below swallow errors, so a denied permission
+ * would otherwise look like "folder doesn't exist".
+ */
+export async function checkNotesAutomationAccess(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await runAppleScript('tell application "Notes" to return name of default account')
+    return { ok: true }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.log('MAIN: cannot control Notes: ', message)
+    return { ok: false, error: message }
+  }
+}
+
+/**
  * Unique, delimited key stored in each note. The "-end" suffix prevents a key
  * from being a substring of another (e.g. book 12 vs book 123) since the
  * shortcut finds notes with "body contains key".

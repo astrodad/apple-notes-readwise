@@ -10,6 +10,7 @@ import {
 } from '../../shared/types'
 import {
   checkFolderExistsAndIsEmptyInAppleNotes,
+  checkNotesAutomationAccess,
   checkFolderExistsInAppleNotes,
   createFolderInAppleNotes,
   getNoteKeysInFolder,
@@ -416,6 +417,19 @@ export class ReadwiseSync {
       this.sendToRenderer('toast:show', {
         variant: 'destructive',
         message: 'No account selected'
+      })
+      await this.handleSyncError('Sync failed')
+      return
+    }
+
+    const notesAccess = await checkNotesAutomationAccess()
+    if (!notesAccess.ok) {
+      const denied = /-1743|not authorized|not allowed/i.test(notesAccess.error || '')
+      this.sendToRenderer('toast:show', {
+        variant: 'destructive',
+        message: denied
+          ? 'Not allowed to control Notes. Enable it in System Settings > Privacy & Security > Automation.'
+          : `Could not talk to Notes: ${notesAccess.error}`
       })
       await this.handleSyncError('Sync failed')
       return
