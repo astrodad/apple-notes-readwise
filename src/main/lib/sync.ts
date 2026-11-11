@@ -9,7 +9,6 @@ import {
   ReadwiseSyncMessage
 } from '../../shared/types'
 import {
-  attachImageToNote,
   checkFolderExistsAndIsEmptyInAppleNotes,
   checkNotesAutomationAccess,
   checkFolderExistsInAppleNotes,
@@ -143,6 +142,9 @@ export class ReadwiseSync {
         `MAIN: ${existedBefore ? 'appending to' : 'creating'} note: ${originalName} - (${bookId})`
       )
 
+      // One shortcut call per note. Never create a note and then ask the shortcut to find it
+      // moments later: its Find Notes step uses a search index that lags behind new notes,
+      // which makes it create a stray note instead of appending.
       if (existedBefore) {
         // Drop the top-level heading so the title isn't repeated.
         await runImportShortcut({
@@ -150,38 +152,21 @@ export class ReadwiseSync {
           folder: notesFolder,
           markdown: body.replace(/^# .*?\n\s*/s, '')
         })
-      } else if (!imageUrl) {
+      } else {
         // Put the key right under the title line so later appends land after it.
         // The shortcut does not add its own readwise-id line.
-        await runImportShortcut({
-          key,
-          folder: notesFolder,
-          markdown: insertKeyAfterTitle(body, key)
-        })
-      } else {
-        // Create the note with only the title + key, attach the cover image right under it,
-        // then append the rest, so the image sits at the top of the note.
         const newline = body.indexOf('\n')
-        const titleLine = newline === -1 ? body : body.slice(0, newline)
+        const head = insertKeyAfterTitle(newline === -1 ? body : body.slice(0, newline), key)
         const rest = newline === -1 ? '' : body.slice(newline + 1)
-
         await runImportShortcut({
           key,
           folder: notesFolder,
-          markdown: insertKeyAfterTitle(titleLine, key)
+          // Full note, so a shortcut that ignores the fields below still works (without a cover).
+          markdown: insertKeyAfterTitle(body, key),
+          // Optional, used by shortcuts that can add the cover image themselves:
+          // create the note from `head`, attach `image`, then append `rest`.
+          ...(imageUrl ? { image: imageUrl, head, rest } : {})
         })
-
-        if (await noteWithKeyExists(key, notesFolder, account)) {
-          try {
-            await attachImageToNote(imageUrl, key, notesFolder, account)
-          } catch (e) {
-            // a missing cover shouldn't fail the whole book
-            console.log(`MAIN: could not attach image for (${bookId}): `, e)
-          }
-          if (rest.trim()) {
-            await runImportShortcut({ key, folder: notesFolder, markdown: rest })
-          }
-        }
       }
 
       // `shortcuts run` exits 0 even if the shortcut failed, so confirm a new note really exists
