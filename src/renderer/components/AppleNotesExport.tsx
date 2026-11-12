@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import { LoginCard } from './LoginCard'
 import { SettingsOptions } from './SettingsOptions'
 import { SyncingProgress } from './SyncingProgress'
-import PermissionPage from './PermissionPage'
 
 interface AppleNotesExportProps {
   onSettingsPageVisible: (visible: boolean) => void
@@ -14,20 +13,17 @@ export default function AppleNotesExport({ onSettingsPageVisible }: AppleNotesEx
   const [state, setState] = useState({
     isLoggedIn: false,
     isSyncing: false,
-    isPermissioned: false,
     isFirstSync: false
   })
 
   useEffect(() => {
     const fetchInitialState = async () => {
       const token = await window.api.getStoreValue('token')
-      const permission = await window.api.getStoreValue('hasAppleNotesFileSystemPermission')
       const firstSync = await window.api.getStoreValue('firstSync')
 
       setState((prevState) => ({
         ...prevState,
         isLoggedIn: Boolean(token),
-        isPermissioned: permission,
         isFirstSync: firstSync
       }))
     }
@@ -43,13 +39,6 @@ export default function AppleNotesExport({ onSettingsPageVisible }: AppleNotesEx
       }))
     }
 
-    const handlePermissionStatus = (_event, isPermissioned: boolean) => {
-      setState((prevState) => ({
-        ...prevState,
-        isPermissioned
-      }))
-    }
-
     const handleSyncStart = () => {
       setState((prevState) => ({ ...prevState, isSyncing: true }))
     }
@@ -60,9 +49,8 @@ export default function AppleNotesExport({ onSettingsPageVisible }: AppleNotesEx
       })
     }
 
-    // Login and permission events
+    // Login events
     window.api.on('login-status', handleLoginStatus)
-    window.api.on('permission-status', handlePermissionStatus)
 
     // Syncing events
     window.api.on('syncing-start', handleSyncStart)
@@ -70,15 +58,14 @@ export default function AppleNotesExport({ onSettingsPageVisible }: AppleNotesEx
 
     return () => {
       window.api.removeAllListeners('login-status', handleLoginStatus)
-      window.api.removeAllListeners('permission-status', handlePermissionStatus)
       window.api.removeAllListeners('syncing-start', handleSyncStart)
       window.api.removeAllListeners('syncing-complete', handleSyncComplete)
     }
   }, [])
 
   useEffect(() => {
-    onSettingsPageVisible(state.isLoggedIn && state.isPermissioned && showSettings)
-  }, [state.isLoggedIn, state.isPermissioned, showSettings, onSettingsPageVisible])
+    onSettingsPageVisible(state.isLoggedIn && showSettings)
+  }, [state.isLoggedIn, showSettings, onSettingsPageVisible])
 
   async function handleSyncHighlights() {
     setState((prevState) => ({ ...prevState, isSyncing: true }))
@@ -97,16 +84,7 @@ export default function AppleNotesExport({ onSettingsPageVisible }: AppleNotesEx
         <h1 className="text-4xl font-bold text-black mb-1">Apple Notes Export</h1>
         <hr className="border-[1px] border-black"></hr>
         {state.isLoggedIn ? (
-          !state.isPermissioned ? (
-            <PermissionPage
-              onIsPermissioned={(isPermissioned: boolean) =>
-                setState((prevState) => ({
-                  ...prevState,
-                  isPermissioned
-                }))
-              }
-            />
-          ) : showSettings ? (
+          showSettings ? (
             <SettingsOptions handleSyncHighlights={handleSyncHighlights} />
           ) : (
             <SyncingProgress

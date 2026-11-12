@@ -1,11 +1,9 @@
 import path from 'path'
-import os from 'os'
-import fs from 'fs'
-import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu } from 'electron'
 import { updateElectronApp } from 'update-electron-app'
 import { store } from '@/lib/store'
 import { updateAppleNotesAccounts } from '@/lib/utils'
-import { baseURL, NOTE_FOLDER_PATH } from '@shared/constants'
+import { baseURL } from '@shared/constants'
 import { getAppleNoteClientID, getUserAuthToken, ReadwiseSync } from '@/lib/sync'
 import { template } from './menu-template'
 
@@ -64,14 +62,6 @@ const createWindow = () => {
       const triggerOnLoad = Boolean(store.get('triggerOnLoad'))
       console.log('Trigger on load: ', triggerOnLoad)
       if (triggerOnLoad) {
-        // Check for Apple Notes permission, if not already granted
-        const hasPermission = store.get('hasAppleNotesFileSystemPermission');
-        if (!hasPermission) {
-          console.log('Stopping sync on load. Requesting Apple Notes permission...');
-          return;
-        }
-
-
         // if sync is already in progress, don't start another one
         if (store.get('isSyncing')) {
           (!mainWindow.isDestroyed()) &&
@@ -159,73 +149,6 @@ ipcMain.handle('electron-store-get', async (_, key) => {
 ipcMain.on('electron-store-set', async (_, key, value) => {
   store.set(key, value)
 })
-
-let isPermissionDialogOpen = false;
-
-ipcMain.handle('request-apple-notes-permission', async (_) => {
-  if (isPermissionDialogOpen) {
-    console.log('MAIN: Permission dialog is already open. Skipping...');
-    return false;
-  }
-
-  isPermissionDialogOpen = true;
-
-  const dataPath = path.join(os.homedir(), NOTE_FOLDER_PATH);
-  if (!fs.existsSync(dataPath)) {
-    console.error('MAIN: Apple Notes data path not found...');
-    isPermissionDialogOpen = false;
-    return false;
-  }
-
-  const hasPermission = store.get('hasAppleNotesFileSystemPermission');
-  if (hasPermission) {
-    console.log('MAIN: Already have permission for Apple Notes folder.');
-    isPermissionDialogOpen = false;
-    return true;
-  }
-
-  console.log('MAIN: Requesting permission for Apple Notes folder...');
-  let permissionGranted = false;
-
-  while (!permissionGranted) {
-    const { filePaths, canceled } = await dialog.showOpenDialog({
-      defaultPath: dataPath,
-      properties: ['openDirectory'],
-      message: 'Select the "group.com.apple.notes" folder to allow Readwise to read Apple Notes data.'
-    });
-
-    if (canceled) {
-      console.log('MAIN: User canceled folder selection.');
-      mainWindow.webContents.send('toast:show', {
-        variant: 'default',
-        message: 'Permission is required to proceed. Please select the correct folder.'
-      });
-      isPermissionDialogOpen = false; // Reset state
-      return false;
-    }
-
-    if (!filePaths.includes(dataPath)) {
-      console.error('MAIN: Did not obtain permission for the correct folder.');
-      mainWindow.webContents.send('toast:show', {
-        variant: 'destructive',
-        message: 'Did not obtain permission for the correct folder. Please try again.'
-      });
-      continue; // Retry dialog
-    }
-
-    console.log('MAIN: Permission granted! 🎉');
-    mainWindow.webContents.send('toast:show', {
-      variant: 'default',
-      message: 'Permission granted! 🎉'
-    });
-
-    store.set('hasAppleNotesFileSystemPermission', true);
-    permissionGranted = true;
-  }
-
-  isPermissionDialogOpen = false;
-  return true;
-});
 
 ipcMain.handle('sync-highlights', async (_event, auto?: boolean) => {
   // if sync is already in progress, don't start another one

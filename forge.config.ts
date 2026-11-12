@@ -7,6 +7,9 @@ import { VitePlugin } from '@electron-forge/plugin-vite'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
 import * as dotenv from 'dotenv'
+import { execFileSync } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 
 dotenv.config()
 
@@ -14,22 +17,31 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: 'resources/icon',
-    osxSign: {
-      optionsForFile(_filePath: string) {
-        return {
-          entitlements: './entitlements/entitlements.plist',
-        };
-      },
-      identity: process.env.APPLE_SIGNING_IDENTITY || '',
-    },
-    osxNotarize: {
-      appleId: process.env.APPLE_ID || '',
-      appleIdPassword: process.env.APPLE_ID_PASSWORD || '',
-      teamId: process.env.APPLE_TEAM_ID || ''
-    },
+    // Only sign/notarize when credentials are provided (release builds).
+    // Local builds skip both so `npm run package` works without an Apple developer account.
+    ...(process.env.APPLE_SIGNING_IDENTITY
+      ? {
+          osxSign: {
+            optionsForFile(_filePath: string) {
+              return {
+                entitlements: './entitlements/entitlements.plist',
+              };
+            },
+            identity: process.env.APPLE_SIGNING_IDENTITY,
+          },
+        }
+      : {}),
+    ...(process.env.APPLE_ID && process.env.APPLE_ID_PASSWORD && process.env.APPLE_TEAM_ID
+      ? {
+          osxNotarize: {
+            appleId: process.env.APPLE_ID,
+            appleIdPassword: process.env.APPLE_ID_PASSWORD,
+            teamId: process.env.APPLE_TEAM_ID
+          },
+        }
+      : {}),
     extendInfo: {
-      "NSAppleEventsUsageDescription": "This app requires permission to access and interact with Apple Notes.",
-      "NSSystemAdministrationUsageDescription": "This app requires full disk access to read and process your notes securely."
+      "NSAppleEventsUsageDescription": "This app requires permission to access and interact with Apple Notes."
     },
     "protocols": [
       {
@@ -39,6 +51,23 @@ const config: ForgeConfig = {
     ]
   },
   rebuildConfig: {},
+  hooks: {
+    // Packaging edits the app's Info.plist after Electron's prebuilt ad-hoc signature was made,
+    // which leaves the signature invalid. macOS then silently refuses Automation (Notes)
+    // access and never shows a prompt. Without a real signing identity, re-sign ad hoc so the
+    // signature matches the final app.
+    postPackage: async (_forgeConfig, packageResult) => {
+      if (process.platform !== 'darwin' || process.env.APPLE_SIGNING_IDENTITY) return
+      for (const outputPath of packageResult.outputPaths) {
+        for (const entry of fs.readdirSync(outputPath)) {
+          if (!entry.endsWith('.app')) continue
+          const appPath = path.join(outputPath, entry)
+          console.log(`Re-signing ${appPath} ad hoc`)
+          execFileSync('codesign', ['--force', '--deep', '--sign', '-', appPath], { stdio: 'inherit' })
+        }
+      }
+    }
+  },
   makers: [
     new MakerSquirrel({}),
     new MakerRpm({}),
