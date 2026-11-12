@@ -63,6 +63,8 @@ Create it in the Shortcuts app with these actions (your version of macOS must of
    - **End If**.
 6. **End If**.
 
+You can download a starter shortcut here: ![iCloud Link](https://www.icloud.com/shortcuts/39b11652fafa4881911e1975da43fd12)
+
 The images are added by the shortcut because Notes' markdown import turns `![](url)` into an empty link, and attaching images with AppleScript inserts them twice. The two appends use the **Created Note** result, not a search, because Find Notes uses a search index that can take minutes to see a new note.
 
 The app runs it with `shortcuts run "Import Markdown to Notes with Images"` and passes JSON on stdin:
