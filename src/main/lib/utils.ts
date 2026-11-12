@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { store } from '@/lib/store'
 import { IMPORT_SHORTCUT_NAME } from '../../shared/constants'
 
@@ -275,4 +277,74 @@ export const createFolderInAppleNotes = async (
 
   const result = await executeAppleScript(script)
   return result === 'true'
+}
+
+/**
+ * Cover images are downloaded by the app and handed to the shortcut as http://127.0.0.1 URLs.
+ * If the shortcut fetched the original URLs itself, macOS would ask for permission once per
+ * website. With a local server there is a single host to approve.
+ */
+const localImages = new Map<string, { data: Buffer; type: string }>()
+let localImageServer: Promise<number> | null = null
+let localImageCounter = 0
+
+function startLocalImageServer(): Promise<number> {
+  if (!localImageServer) {
+    localImageServer = new Promise((resolve, reject) => {
+      const server = createServer((req, res) => {
+        const image = localImages.get((req.url || '').split('?')[0])
+        if (!image) {
+          res.writeHead(404).end()
+          return
+        }
+        res.writeHead(200, { 'Content-Type': image.type, 'Content-Length': image.data.length })
+        res.end(image.data)
+      })
+      server.on('error', (e) => {
+        localImageServer = null
+        reject(e)
+      })
+      // 127.0.0.1 only, so nothing outside this machine can reach it
+      server.listen(0, '127.0.0.1', () => {
+        server.unref()
+        resolve((server.address() as AddressInfo).port)
+      })
+    })
+  }
+  return localImageServer
+}
+
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/heic': 'heic',
+  'image/svg+xml': 'svg'
+}
+
+/**
+ * Downloads an image and returns a local URL serving it, or null if it can't be fetched
+ * (the note is then created without a cover). Call releaseLocalImage when done.
+ */
+export async function serveImageLocally(imageUrl: string): Promise<string | null> {
+  try {
+    const response = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) })
+    if (!response.ok) return null
+    const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase()
+    const ext = IMAGE_EXTENSIONS[type]
+    if (!ext) return null // not an image (e.g. an HTML error page)
+    const data = Buffer.from(await response.arrayBuffer())
+    const path = `/${++localImageCounter}.${ext}`
+    localImages.set(path, { data, type })
+    const port = await startLocalImageServer()
+    return `http://127.0.0.1:${port}${path}`
+  } catch (e) {
+    console.log('MAIN: could not download cover image: ', imageUrl, e)
+    return null
+  }
+}
+
+export function releaseLocalImage(localUrl: string) {
+  localImages.delete(new URL(localUrl).pathname)
 }

@@ -17,7 +17,9 @@ import {
   importShortcutExists,
   noteKeyForBook,
   noteWithKeyExists,
-  runImportShortcut
+  runImportShortcut,
+  serveImageLocally,
+  releaseLocalImage
 } from './utils'
 import { baseURL, IMPORT_SHORTCUT_NAME } from '../../shared/constants'
 import { store } from '@/lib/store'
@@ -158,15 +160,22 @@ export class ReadwiseSync {
         const newline = body.indexOf('\n')
         const head = insertKeyAfterTitle(newline === -1 ? body : body.slice(0, newline), key)
         const rest = newline === -1 ? '' : body.slice(newline + 1)
-        await runImportShortcut({
-          key,
-          folder: notesFolder,
-          // Full note, so a shortcut that ignores the fields below still works (without a cover).
-          markdown: insertKeyAfterTitle(body, key),
-          // Optional, used by shortcuts that can add the cover image themselves:
-          // create the note from `head`, attach `image`, then append `rest`.
-          ...(imageUrl ? { image: imageUrl, head, rest } : {})
-        })
+        // Download the cover ourselves and serve it from localhost, so macOS doesn't ask the
+        // user to approve every image host for the shortcut.
+        const localImage = imageUrl ? await serveImageLocally(imageUrl) : null
+        try {
+          await runImportShortcut({
+            key,
+            folder: notesFolder,
+            // Full note, so a shortcut that ignores the fields below still works (without a cover).
+            markdown: insertKeyAfterTitle(body, key),
+            // Optional, used by shortcuts that can add the cover image themselves:
+            // create the note from `head`, attach `image`, then append `rest`.
+            ...(localImage ? { image: localImage, head, rest } : {})
+          })
+        } finally {
+          if (localImage) releaseLocalImage(localImage)
+        }
       }
 
       // `shortcuts run` exits 0 even if the shortcut failed, so confirm a new note really exists

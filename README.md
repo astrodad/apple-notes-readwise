@@ -71,7 +71,7 @@ The app runs it with `shortcuts run "Import Markdown to Notes with Images"` and 
 {"key": "rwid-12345-end", "folder": "Readwise", "markdown": "# Title\n\nreadwise-id: rwid-12345-end\n\n..."}
 ```
 
-Notes with a cover image also include `image` (the image URL), `head` (the title and key lines) and `rest` (everything after them).
+Notes with a cover image also include `image` (a `http://127.0.0.1` URL where the app serves the cover it downloaded, so macOS asks you to approve one host instead of every image site), `head` (the title and key lines) and `rest` (everything after them).
 
 The app writes the `readwise-id` line itself (under the note's title) and uses it to find the note again later, so the shortcut must not add its own copy. The key is delimited (`rwid-<id>-end`) so one book's key is never a substring of another's.
 
